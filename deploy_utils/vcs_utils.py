@@ -17,12 +17,7 @@ def get_changed_files_git(commit_id, path='../'):
         # current branch.
         # (See http://www.paulboxley.com/blog/2011/06/git-caret-and-tilde)
         diff = repo.diff(commit_id, '%s~1' % commit_id)
-        files_changed = []
-        for p in diff:
-            delta = p.delta
-            # TODO: Get rid of this tix-specific path
-            changed_file_path = delta.new_file.path.replace('tix/', '')
-            files_changed.append(changed_file_path)
+        files_changed = [p.delta.new_file.path for p in diff]
         return message, files_changed
     except ImportError:
         raise Exception("Unable to proceed as pygit2 is not installed.")

@@ -13,6 +13,7 @@ import six
 
 from django.core.management.base import BaseCommand
 from django.conf import settings
+from django.contrib.staticfiles.finders import get_finders
 
 from deploy_utils.vcs_utils import get_changed_files_git
 from deploy_utils.file_utils import get_changed_files_local, \
@@ -81,6 +82,35 @@ def prompt_bool(name, default=False,
             return rv
 
 
+def get_static_file_path(abs_path):
+    """
+    Check if the given file path represents a static file, and if so return
+    the corresponding relative path (i.e. relative to the static folder it
+    belongs to); otherwise return None.
+    """
+    # First check if the file appears to be in one of the installed apps'
+    # 'static' subdirectories
+    # TODO: Need to also check if it's in one of STATICFILES_DIRS
+    # TODO: Also need to handle npm-installed files; this might help:
+    # https://github.com/kevin1024/django-npm
+
+    static_dir = "{}static{}".format(os.path.sep, os.path.sep)
+    index = abs_path.rfind(static_dir)
+    if index != -1:
+        # Path includes '/static/'; now check if it is actually is a static
+        # file by seeing if any of our static file finders returns it
+        rel_path = abs_path[index + len(static_dir):]
+        for finder in get_finders():
+            # If the given relative path is a static file, then one of our
+            # finders should return the corresponding absolute path
+            found_paths = finder.find(rel_path, all=True)
+            if abs_path in found_paths:
+                return rel_path
+
+    # Return None to indicate that this is not a static file
+    return None
+
+
 class Command(BaseCommand):
     option_list = BaseCommand.option_list + (
         make_option('-d', '--dry-run', action='store_true', dest='dry_run',
@@ -122,15 +152,8 @@ class Command(BaseCommand):
         get_changed_files = get_changed_files_git
 
         if path == None:
+            # Look in the parent directory
             path = '..'
-
-        media_root = settings.MEDIA_ROOT
-        # TODO: get rid of these tix-specific paths
-        if os.path.abspath('.') == '/tix/def-xxx/GIT/tix/tix':
-            media_root = '/tix/def-xxx/GIT/tix/tix/media/'
-
-        if verbose_output:
-            self.stdout.write('media_root = %s ' % media_root)
 
         # check staticfiles and pipeline is actually being used
         if settings.STATICFILES_STORAGE not in (
@@ -174,24 +197,24 @@ class Command(BaseCommand):
             self.stdout.write('Deployment aborted')
             return
 
-        # loop through all files and save using the default storage
-        # (s3 is this case) if they are in media root
+        # loop through all files and save each one using the default storage
+        # (s3 is this case) if it is a static file
         for file_changed in files_changed:
-            abs_path = os.path.join(os.path.abspath('.'),
+            abs_path = os.path.join(os.path.abspath(path),
                                     file_changed)
 
-            # abs_paths = get_abspaths_for_static_file(file_changed)
-            # All our static files are in media anyway
-            relative_path = abs_path.replace('%s' % media_root, '')
+            relative_path = get_static_file_path(abs_path)
+
             if verbose_output:
                 self.stdout.write('file_changed = %s ' % file_changed)
                 self.stdout.write('path = %s ' % path)
                 self.stdout.write('abs_path = %s ' % abs_path)
                 self.stdout.write('relative_path = %s ' % relative_path)
-            if relative_path == abs_path:
+
+            if not relative_path:
                 self.stdout.write('%s is _NOT_ a media/static file and will ' \
                     'not be deployed' % file_changed)
-            elif not os.path.isfile(abs_path):  # check that the abs_path file exists
+            elif not os.path.isfile(abs_path):  # check that the file exists
                 self.stdout.write("%s doesn't exist locally so can't be " \
                                   "deployed" % abs_path)
             else:
