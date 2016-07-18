@@ -4,7 +4,7 @@ Created on 21 May 2014
 @author: philroche
 
 python manage.py deploystatic --commit=3b282d9a07db7ab7e317944208b92cf66e1294c5
-python manage.py deploystatic --file=media/css/all.css --file=media/js/feedback.js
+python manage.py deploystatic --file=media/css/all.css --file=media/js/fb.js
 '''
 
 from optparse import make_option
@@ -13,7 +13,7 @@ import six
 
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from django.contrib.staticfiles.finders import get_finders
+from django.contrib.staticfiles.finders import get_finders, get_finder
 
 from deploy_utils.vcs_utils import get_changed_files_git
 from deploy_utils.file_utils import get_changed_files_local, \
@@ -88,23 +88,33 @@ def get_static_file_path(abs_path):
     the corresponding relative path (i.e. relative to the static folder it
     belongs to); otherwise return None.
     """
-    # First check if the file appears to be in one of the installed apps'
-    # 'static' subdirectories
-    # TODO: Need to also check if it's in one of STATICFILES_DIRS
-    # TODO: Also need to handle npm-installed files; this might help:
-    # https://github.com/kevin1024/django-npm
+    rel_path = None
 
-    static_dir = "{}static{}".format(os.path.sep, os.path.sep)
-    index = abs_path.rfind(static_dir)
-    if index != -1:
-        # Path includes '/static/'; now check if it is actually is a static
+    # First check if the file is in one of our STATICFILES_DIRS
+    for static_dir in settings.STATICFILES_DIRS:
+        static_dir = os.path.abspath(os.path.normpath(static_dir))
+        if static_dir in abs_path:
+            rel_path = abs_path[len(static_dir) + 1:]
+            break
+
+    if not rel_path:
+        # Check if the file appears to be in one of the installed apps'
+        # 'static' subdirectories
+        static_dir = "{}static{}".format(os.path.sep, os.path.sep)
+        index = abs_path.rfind(static_dir)
+        if index != -1:
+            # Path contains '/static/'; take the part after this
+            rel_path = abs_path[index + len(static_dir):]
+
+    if rel_path:
+        # Have a relative path; now check if it is actually is a static
         # file by seeing if any of our static file finders returns it
-        rel_path = abs_path[index + len(static_dir):]
         for finder in get_finders():
             # If the given relative path is a static file, then one of our
             # finders should return the corresponding absolute path
             found_paths = finder.find(rel_path, all=True)
             if abs_path in found_paths:
+                # Return the relative static path (e.g. 'img/icons/arrow.png')
                 return rel_path
 
     # Return None to indicate that this is not a static file
@@ -197,6 +207,11 @@ class Command(BaseCommand):
             self.stdout.write('Deployment aborted')
             return
 
+        npm_collect_required = False
+        npm_root_path = getattr(settings, "NPM_ROOT_PATH", "")
+        if npm_root_path:
+            npm_root_path = os.path.normpath(npm_root_path)
+
         # loop through all files and save each one using the default storage
         # (s3 is this case) if it is a static file
         for file_changed in files_changed:
@@ -212,8 +227,13 @@ class Command(BaseCommand):
                 self.stdout.write('relative_path = %s ' % relative_path)
 
             if not relative_path:
-                self.stdout.write('%s is _NOT_ a media/static file and will ' \
-                    'not be deployed' % file_changed)
+                if npm_root_path and npm_root_path in abs_path:
+                    # Front-end source file changed; we'll collect the
+                    # NPM-built distribution files later
+                    npm_collect_required = True
+                else:
+                    self.stdout.write('%s is _NOT_ a media/static file ' \
+                        'and will not be deployed' % file_changed)
             elif not os.path.isfile(abs_path):  # check that the file exists
                 self.stdout.write("%s doesn't exist locally so can't be " \
                                   "deployed" % abs_path)
@@ -225,3 +245,21 @@ class Command(BaseCommand):
                     self.stdout.write('\tcopied %s ' % relative_path)
                     post_process_static_file(abs_path, relative_path)
                     self.stdout.write('\tprocessed %s ' % relative_path)
+
+        if npm_collect_required:
+            self.stdout.write("Collecting NPM-built assets...")
+            finder = get_finder(
+                    "django.contrib.staticfiles.finders.FileSystemFinder")
+            ignore_patterns = ['CVS', '.*', '*~']
+            for relative_path, storage in finder.list(ignore_patterns):
+                location = storage.location
+                if npm_root_path in location and not dry_run:
+                    abs_path = os.path.join(storage.location, relative_path)
+                    copy_static_file(abs_path, relative_path)
+                    self.stdout.write('\tcopied %s ' % relative_path)
+
+                    # For now we assume no post-processing needs to be done
+                    # (i.e. npm itself will have done any minification and
+                    # packaging of assets)
+                    # post_process_static_file(abs_path, relative_path)
+                    # self.stdout.write('\tprocessed %s ' % relative_path)
