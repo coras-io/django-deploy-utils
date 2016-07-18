@@ -11,7 +11,7 @@ def copy_static_file(path, dest_path):
     Attempt to copy ``path`` with storage
     """
     static_storage = DummyStorage()
-    with open(path) as source_file:
+    with open(path, "rb") as source_file:
         static_storage.save(dest_path, ContentFile(source_file.read()))
 
 
