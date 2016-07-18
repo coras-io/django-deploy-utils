@@ -107,6 +107,9 @@ class S3StaticStorage(S3PipelineCachedStorage):
     def __init__(self, *args, **kwargs):
         kwargs['bucket'] = settings.AWS_STATIC_BUCKET_NAME
         kwargs['connection_class'] = S3ProxyConnection
+        if (getattr(settings, 'CLOUDFRONT_ENABLED', False) and
+            getattr(settings, 'CLOUDFRONT_CUSTOM_STATIC_DOMAIN', None)):
+            kwargs['custom_domain'] = settings.CLOUDFRONT_CUSTOM_STATIC_DOMAIN
         super(S3StaticStorage, self).__init__(*args, **kwargs)
 
 
@@ -116,6 +119,9 @@ class S3MediaStorage(S3PipelineStorage):
     def __init__(self, *args, **kwargs):
         kwargs['bucket'] = settings.AWS_MEDIA_BUCKET_NAME
         kwargs['connection_class'] = S3ProxyConnection
+        if (getattr(settings, 'CLOUDFRONT_ENABLED', False) and
+            getattr(settings, 'CLOUDFRONT_CUSTOM_MEDIA_DOMAIN', None)):
+            kwargs['custom_domain'] = settings.CLOUDFRONT_CUSTOM_MEDIA_DOMAIN
         super(S3MediaStorage, self).__init__(*args, **kwargs)
 
 
