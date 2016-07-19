@@ -42,7 +42,7 @@ setup(
     install_requires=[
         "Django>=1.8",
         "django-pipeline>=1.5",
-        "pygit2==0.24.1",
+        # "pygit2==0.24.1",
         "boto==2.38.0",
         "django-storages-redux==1.3",
     ],
