@@ -88,7 +88,8 @@ class S3ProxyConnection(S3Connection):
 
 
 class S3PipelineCachedStorage(PipelineMixin, CachedFilesMixin, S3BotoStorage):
-    pass
+    def url(self, name, force=False):
+        return super().url(name, True)
 
 
 class S3PipelineStorage(PipelineMixin, S3BotoStorage):
